@@ -140,6 +140,11 @@ async function persistResults(requestedAspects, result) {
     const persistPromises = [];
 
     for (const aspect of requestedAspects) {
+        // Known limitation: when multiple aspects are assessed in one call, `result` is the
+        // combined AI output for all aspects. Each aspect's tracker and chat variable receives
+        // the full combined text rather than only its section. Splitting by section headers is
+        // fragile (AI output formatting is inconsistent), so this is left as-is for now and
+        // will be improved in a future version.
         // Always store in chat variable for cross-tool reference (plan-and-refine reads these)
         persistPromises.push(setChatVar(`ng_last_${aspect}`, result));
 

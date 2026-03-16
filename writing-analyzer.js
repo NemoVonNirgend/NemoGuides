@@ -93,8 +93,11 @@ const OPENER_PATTERNS = [
  * @property {number} messagesAnalyzed
  */
 
-/** Cached analysis result — refreshed on each generation. */
+/** Cached analysis result — refreshed when message count changes. */
 let lastAnalysis = null;
+
+/** Message count at the time of the last analysis run. */
+let lastAnalyzedMessageCount = -1;
 
 // ── Core Analysis ──
 
@@ -293,7 +296,17 @@ export function buildWritingWarnings() {
     const settings = extension_settings[EXTENSION_NAME];
     if (!settings?.enabled || settings?.writingAnalysis === false) return '';
 
-    const analysis = analyzeChat();
+    const context = getContext();
+    const currentMessageCount = context?.chat?.length ?? 0;
+
+    if (lastAnalysis !== null && currentMessageCount === lastAnalyzedMessageCount) {
+        // Message count unchanged — skip re-analysis, fall through to format cached result
+    } else {
+        lastAnalyzedMessageCount = currentMessageCount;
+        analyzeChat(); // updates lastAnalysis via side-effect
+    }
+
+    const analysis = lastAnalysis;
     if (!analysis || analysis.messagesAnalyzed < 3) return '';
 
     const warnings = [];

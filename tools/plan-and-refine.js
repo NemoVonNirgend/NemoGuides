@@ -179,15 +179,19 @@ async function runFullPipeline(direction) {
     if (brainstormResult.startsWith('Error')) return brainstormResult;
 
     // Step 3: Refine (synthesizes plan + brainstorm)
-    const refinedResult = await runRefine(null); // null = auto-pull from chat var
+    // runRefine returns a status string, not the plan itself — read the actual plan from the chat var
+    const refineStatus = await runRefine(null); // null = auto-pull from chat var
+    if (refineStatus.startsWith('Error')) return refineStatus;
+
+    const refinedPlan = await getChatVar('ng_last_plan');
 
     // Inject the final refined plan if injection is configured
     const injectConfig = getToolInjectionConfig(TOOL_NAME);
-    if (injectConfig) {
+    if (injectConfig && refinedPlan) {
         const { getContext } = await import('../../../extensions.js');
         const context = getContext();
         try {
-            const injectScript = `/inject id=${injectConfig.id} position=${injectConfig.position} depth=${injectConfig.depth} role=${injectConfig.role} ephemeral=${injectConfig.ephemeral} scan=${injectConfig.scan} ${JSON.stringify(refinedResult)}`;
+            const injectScript = `/inject id=${injectConfig.id} position=${injectConfig.position} depth=${injectConfig.depth} role=${injectConfig.role} ephemeral=${injectConfig.ephemeral} scan=${injectConfig.scan} ${JSON.stringify(refinedPlan)}`;
             await context.executeSlashCommandsWithOptions(injectScript, {
                 showOutput: false,
                 handleExecutionErrors: true,

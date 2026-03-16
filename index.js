@@ -26,7 +26,6 @@ import { extension_settings, renderExtensionTemplateAsync, getContext } from '..
 import {
     EXTENSION_NAME,
     ALL_TOOL_NAMES,
-    TOOL_DISPLAY_NAMES,
     getDefaultSettings,
     registerAllTools,
     unregisterAllTools,
@@ -37,7 +36,7 @@ import { clearAllTrackers, ensureBookExists, buildTrackerStatusMessage } from '.
 import { autoGenerateRules } from './tools/rule-setup.js';
 import { initDMNotes } from './tools/dm-notes.js';
 import { buildWritingWarnings } from './writing-analyzer.js';
-import { runPromptAdvisor, applyAllRecommendations, initPromptAdvisor } from './prompt-advisor.js';
+import { runPromptAdvisor, applyAllRecommendations, resetAdvisorState } from './prompt-advisor.js';
 
 const LOG_PREFIX = '[NemosGuides]';
 const EXTENSION_FOLDER = 'third-party/NemosGuides';
@@ -207,8 +206,13 @@ function bindSettingsEvents() {
 
     $('#ng_generate_rules').on('click', async function () {
         toastr.info('Generating story rules...', "Nemo's Guides");
-        await autoGenerateRules();
-        toastr.success('Story rules generated and saved to lorebook.', "Nemo's Guides");
+        try {
+            await autoGenerateRules();
+            toastr.success('Story rules generated and saved to lorebook.', "Nemo's Guides");
+        } catch (error) {
+            console.error(`${LOG_PREFIX} Rule generation failed:`, error);
+            toastr.error('Failed to generate story rules. Check the console for details.', "Nemo's Guides");
+        }
     });
 
     // System instruction settings
@@ -254,12 +258,14 @@ function bindSettingsEvents() {
         if (!toolName) return;
 
         section.find('.ng-tool-enabled').on('change', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             extension_settings[EXTENSION_NAME].tools[toolName].enabled = !!$(this).prop('checked');
             saveSettingsDebounced();
             registerAllTools();
         });
 
         section.find('.ng-tool-stealth').on('change', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             extension_settings[EXTENSION_NAME].tools[toolName].stealth = !!$(this).prop('checked');
             saveSettingsDebounced();
             registerAllTools();
@@ -267,6 +273,7 @@ function bindSettingsEvents() {
 
         // Inject toggle + options visibility
         section.find('.ng-tool-inject').on('change', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             const checked = !!$(this).prop('checked');
             extension_settings[EXTENSION_NAME].tools[toolName].injectResult = checked;
             section.find('.ng-inject-options').toggle(checked);
@@ -274,31 +281,37 @@ function bindSettingsEvents() {
         });
 
         section.find('.ng-tool-inject-position').on('change', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             extension_settings[EXTENSION_NAME].tools[toolName].injectPosition = $(this).val();
             saveSettingsDebounced();
         });
 
         section.find('.ng-tool-inject-depth').on('input', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             extension_settings[EXTENSION_NAME].tools[toolName].injectDepth = parseInt($(this).val()) || 1;
             saveSettingsDebounced();
         });
 
         section.find('.ng-tool-inject-ephemeral').on('change', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             extension_settings[EXTENSION_NAME].tools[toolName].injectEphemeral = !!$(this).prop('checked');
             saveSettingsDebounced();
         });
 
         section.find('.ng-tool-preset').on('input', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             extension_settings[EXTENSION_NAME].tools[toolName].preset = $(this).val().trim();
             saveSettingsDebounced();
         });
 
         section.find('.ng-tool-prompt').on('input', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             extension_settings[EXTENSION_NAME].tools[toolName].prompt = $(this).val();
             saveSettingsDebounced();
         });
 
         section.find('.ng-reset-prompt').on('click', function () {
+            if (!extension_settings[EXTENSION_NAME]?.tools?.[toolName]) return;
             extension_settings[EXTENSION_NAME].tools[toolName].prompt = '';
             section.find('.ng-tool-prompt').val('');
             saveSettingsDebounced();
@@ -402,6 +415,9 @@ async function onChatChanged() {
     lastChatId = currentChatId;
 
     if (isNewChat) {
+        // Reset advisor state so stale recommendations don't carry over
+        resetAdvisorState();
+
         const chatLength = context.chat?.filter(m => !m.is_system)?.length || 0;
         if (chatLength <= 1) {
             console.log(`${LOG_PREFIX} New chat detected — wiping tracker entries.`);
@@ -425,7 +441,7 @@ async function onChatChanged() {
  * Handle first user message — wipe trackers if this is the first real message.
  * This catches the case where the user sends the first message in a brand new chat.
  */
-async function onFirstMessage(messageIndex) {
+async function onFirstMessage() {
     const context = getContext();
     // Count non-system messages. If this is the first user message (greeting + 1 user msg = 2 total),
     // wipe trackers for a fresh start.

@@ -15,6 +15,17 @@ import { EXTENSION_NAME } from './tool-registry.js';
 const LOG_PREFIX = '[NemosGuides:PromptAdvisor]';
 
 /**
+ * Escape HTML special characters to prevent XSS when inserting LLM output into toastr HTML.
+ * @param {string} text
+ * @returns {string}
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
  * Scan all prompts from the prompt manager DOM.
  * @returns {{ name: string, id: string, enabled: boolean, section: string }[]}
  */
@@ -143,7 +154,7 @@ function displayRecommendations(advice) {
         hasRecommendations = true;
         for (const rec of advice.recommend_enable) {
             toastr.success(
-                `<strong>Consider enabling:</strong> "${rec.name}"<br><small>${rec.reason}</small>`,
+                `<strong>Consider enabling:</strong> "${escapeHtml(rec.name)}"<br><small>${escapeHtml(rec.reason)}</small>`,
                 "Nemo's Guides — Prompt Advisor",
                 { timeOut: 15000, escapeHtml: false, closeButton: true },
             );
@@ -155,7 +166,7 @@ function displayRecommendations(advice) {
         hasRecommendations = true;
         for (const rec of advice.recommend_disable) {
             toastr.warning(
-                `<strong>Consider disabling:</strong> "${rec.name}"<br><small>${rec.reason}</small>`,
+                `<strong>Consider disabling:</strong> "${escapeHtml(rec.name)}"<br><small>${escapeHtml(rec.reason)}</small>`,
                 "Nemo's Guides — Prompt Advisor",
                 { timeOut: 15000, escapeHtml: false, closeButton: true },
             );
@@ -167,7 +178,7 @@ function displayRecommendations(advice) {
         for (const conflict of advice.conflicts) {
             if (conflict && conflict.trim()) {
                 toastr.error(
-                    `<strong>Potential conflict:</strong><br><small>${conflict}</small>`,
+                    `<strong>Potential conflict:</strong><br><small>${escapeHtml(conflict)}</small>`,
                     "Nemo's Guides — Prompt Advisor",
                     { timeOut: 20000, escapeHtml: false, closeButton: true },
                 );
@@ -190,6 +201,16 @@ function displayRecommendations(advice) {
 
 /** Store last advice for "Apply All" */
 let lastAdvice = null;
+
+/**
+ * Reset advisor state — clear stored advice and hide the Apply All button.
+ * Call on chat change to avoid stale recommendations carrying over.
+ */
+export function resetAdvisorState() {
+    lastAdvice = null;
+    const applyBtn = document.getElementById('ng_apply_recommendations');
+    if (applyBtn) applyBtn.style.display = 'none';
+}
 
 /**
  * Run the advisor and store results for potential "Apply All".

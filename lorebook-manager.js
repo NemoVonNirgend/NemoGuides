@@ -199,6 +199,36 @@ async function findTrackerEntry(trackerType) {
         delete uidCache[trackerType];
     }
 
+    // Cache miss (e.g. after a page reload) — scan the lorebook for a matching entry.
+    // We look for an entry whose comment field contains the tracker's expected comment string.
+    const tracker = TRACKERS[trackerType];
+    if (!tracker) return null;
+
+    try {
+        // /getentryfield does not support listing all entries, so we probe sequential UIDs.
+        // STScript returns empty string for unknown UIDs, so we stop after a run of misses.
+        const MAX_SCAN_UID = 200;
+        const MAX_CONSECUTIVE_MISSES = 10;
+        let consecutiveMisses = 0;
+
+        for (let uid = 0; uid < MAX_SCAN_UID; uid++) {
+            const comment = await runScript(`/getentryfield file=${JSON.stringify(bookName)} uid=${uid} field=comment`);
+            if (!comment || comment.trim() === '') {
+                consecutiveMisses++;
+                if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) break;
+                continue;
+            }
+            consecutiveMisses = 0;
+            if (comment.includes(tracker.comment)) {
+                uidCache[trackerType] = String(uid);
+                console.log(`${LOG_PREFIX} Found tracker "${trackerType}" via scan (UID: ${uid})`);
+                return String(uid);
+            }
+        }
+    } catch (error) {
+        console.warn(`${LOG_PREFIX} Lorebook scan for "${trackerType}" failed:`, error);
+    }
+
     return null;
 }
 
@@ -280,15 +310,17 @@ export async function clearAllTrackers() {
 
     const bookName = getBookName();
 
-    for (const trackerType of Object.keys(TRACKERS)) {
-        const uid = await findTrackerEntry(trackerType);
-        if (uid) {
-            await Promise.all([
-                runScript(`/setentryfield file=${JSON.stringify(bookName)} uid=${uid} field=disable true`),
-                runScript(`/setentryfield file=${JSON.stringify(bookName)} uid=${uid} field=content ${JSON.stringify(buildMetadata('cleared') + '\n(Awaiting scene assessment)')}`),
-            ]);
-        }
-    }
+    await Promise.allSettled(
+        Object.keys(TRACKERS).map(async (trackerType) => {
+            const uid = await findTrackerEntry(trackerType);
+            if (uid) {
+                await Promise.all([
+                    runScript(`/setentryfield file=${JSON.stringify(bookName)} uid=${uid} field=disable true`),
+                    runScript(`/setentryfield file=${JSON.stringify(bookName)} uid=${uid} field=content ${JSON.stringify(buildMetadata('cleared') + '\n(Awaiting scene assessment)')}`),
+                ]);
+            }
+        })
+    );
 
     console.log(`${LOG_PREFIX} All trackers wiped.`);
 }

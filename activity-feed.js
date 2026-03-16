@@ -72,6 +72,7 @@ export function initActivityFeed() {
     if (event_types.CHAT_CHANGED) {
         eventSource.on(event_types.CHAT_CHANGED, () => {
             clearFeed();
+            document.querySelectorAll('.ng-feed-details').forEach(el => el.remove());
         });
     }
 

@@ -14,12 +14,18 @@
  *   {{char}}, {{user}}, {{lastMessage}}, etc. - Macros auto-resolved by STScript
  */
 
-import { substituteParams } from '../../../../script.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import { notifyToolStart, notifyToolComplete } from './activity-feed.js';
 import { EXTENSION_NAME } from './tool-registry.js';
 
 const LOG_PREFIX = '[NemosGuides]';
+
+/**
+ * Mutex for preset-switching generations.
+ * Serializes concurrent sidecar calls that switch presets to prevent
+ * one call restoring the preset while another is mid-generation.
+ */
+let presetLock = Promise.resolve();
 
 /**
  * Run a sidecar LLM generation using STScript.
@@ -53,25 +59,8 @@ export async function runSidecarGeneration({ prompt, preset, toolName, toolParam
         feedItemId = notifyToolStart(toolName, toolParams);
     }
 
-    // If a preset is configured, save the current preset name so we can restore it after generation.
-    // This prevents conflicts with TunnelVision or other extensions that also switch presets.
-    let savedPreset = null;
-    if (preset) {
-        try {
-            const presetResult = await context.executeSlashCommandsWithOptions('/preset', {
-                showOutput: false,
-                handleExecutionErrors: true,
-            });
-            savedPreset = presetResult?.pipe?.trim() || null;
-        } catch { /* best effort — if we can't read it, we skip restore */ }
-    }
-
+    // Build /gen command with options (done outside the lock — no preset I/O needed here)
     const commands = [];
-
-    // Switch to tool-specific preset if configured
-    if (preset) {
-        commands.push(`/preset "${preset}"`);
-    }
 
     // Build /gen command with options
     let genCmd = '/gen';
@@ -82,89 +71,121 @@ export async function runSidecarGeneration({ prompt, preset, toolName, toolParam
     genCmd += ` ${JSON.stringify(prompt)}`;
     commands.push(genCmd);
 
-    const script = commands.join(' | ');
+    const genScript = commands.join(' | ');
 
     console.log(`${LOG_PREFIX} Running sidecar generation${preset ? ` with preset "${preset}"` : ''}`);
 
-    try {
-        const result = await context.executeSlashCommandsWithOptions(script, {
-            showOutput: false,
-            handleExecutionErrors: true,
-        });
-
-        if (result?.isError) {
-            throw new Error(`STScript execution failed: ${result.errorMessage}`);
-        }
-
-        const output = result?.pipe || '';
-
-        if (!output.trim()) {
-            console.warn(`${LOG_PREFIX} Sidecar generation returned empty result.`);
-            if (feedItemId !== null) {
-                notifyToolComplete(feedItemId, true, 'Empty result');
-            }
-            return '(No content generated)';
-        }
-
-        console.log(`${LOG_PREFIX} Sidecar generation complete (${output.length} chars)`);
-
-        // Post-generation actions: inject and/or store result
-        await postProcess(context, output, { inject, storeAs, toolName });
-
-        // Always inject the full result ephemerally so the AI sees it for its response,
-        // even if the tool returns only a brief summary to keep chat clean.
-        const ephemeralId = `ng_ephemeral_${toolName || 'sidecar'}`;
-        try {
-            await context.executeSlashCommandsWithOptions(
-                `/inject id=${ephemeralId} position=chat depth=1 role=system ephemeral=true scan=false ${JSON.stringify(`[NG Tool Result — ${toolName || 'sidecar'}]\n${output}`)}`,
-                { showOutput: false, handleExecutionErrors: true },
-            );
-            console.log(`${LOG_PREFIX} Injected result ephemerally as "${ephemeralId}"`);
-        } catch (err) {
-            console.warn(`${LOG_PREFIX} Could not inject ephemeral result:`, err);
-        }
-
-        // Build storage info for the activity feed details
-        const storedIn = [];
-        if (extraStorageInfo) storedIn.push(...extraStorageInfo);
-        if (storeAs) storedIn.push(`Chat variable: ${storeAs}`);
-        if (inject?.id) storedIn.push(`Injection: ${inject.id} (${inject.position || 'chat'}, depth ${inject.depth ?? 1})`);
-        storedIn.push(`Ephemeral injection: ng_ephemeral_${toolName || 'sidecar'}`);
-
-        if (feedItemId !== null) {
-            notifyToolComplete(feedItemId, true, `${output.length} chars generated`, {
-                fullResult: output,
-                storedIn,
-            });
-        }
-
-        return output;
-    } catch (error) {
-        console.error(`${LOG_PREFIX} Sidecar generation failed:`, error);
-
-        if (feedItemId !== null) {
-            notifyToolComplete(feedItemId, false, error.message, {
-                fullResult: `Error: ${error.message}`,
-                storedIn: [],
-            });
-        }
-
-        return `Error during generation: ${error.message}`;
-    } finally {
-        // Restore the original preset if we switched away from it.
-        // This prevents conflicts with TunnelVision or other extensions.
-        if (savedPreset && preset) {
+    // If a preset switch is needed, serialize via presetLock to prevent concurrent
+    // calls from clobbering each other's preset save/restore cycle.
+    const runGeneration = async () => {
+        // If a preset is configured, save the current preset name so we can restore it after generation.
+        // This prevents conflicts with TunnelVision or other extensions that also switch presets.
+        let savedPreset = null;
+        if (preset) {
             try {
-                await context.executeSlashCommandsWithOptions(`/preset "${savedPreset}"`, {
+                const presetResult = await context.executeSlashCommandsWithOptions('/preset', {
                     showOutput: false,
                     handleExecutionErrors: true,
                 });
-                console.log(`${LOG_PREFIX} Restored preset to "${savedPreset}"`);
-            } catch {
-                console.warn(`${LOG_PREFIX} Could not restore preset "${savedPreset}"`);
+                savedPreset = presetResult?.pipe?.trim() || null;
+            } catch { /* best effort — if we can't read it, we skip restore */ }
+
+            // Switch to tool-specific preset
+            await context.executeSlashCommandsWithOptions(`/preset "${preset}"`, {
+                showOutput: false,
+                handleExecutionErrors: true,
+            });
+        }
+
+        try {
+            const result = await context.executeSlashCommandsWithOptions(genScript, {
+                showOutput: false,
+                handleExecutionErrors: true,
+            });
+
+            if (result?.isError) {
+                throw new Error(`STScript execution failed: ${result.errorMessage}`);
+            }
+
+            const output = result?.pipe || '';
+
+            if (!output.trim()) {
+                console.warn(`${LOG_PREFIX} Sidecar generation returned empty result.`);
+                if (feedItemId !== null) {
+                    notifyToolComplete(feedItemId, true, 'Empty result');
+                }
+                return '(No content generated)';
+            }
+
+            console.log(`${LOG_PREFIX} Sidecar generation complete (${output.length} chars)`);
+
+            // Post-generation actions: inject and/or store result
+            await postProcess(context, output, { inject, storeAs, toolName });
+
+            // Always inject the full result ephemerally so the AI sees it for its response,
+            // even if the tool returns only a brief summary to keep chat clean.
+            const ephemeralId = `ng_ephemeral_${toolName || 'sidecar'}`;
+            try {
+                await context.executeSlashCommandsWithOptions(
+                    `/inject id=${ephemeralId} position=chat depth=1 role=system ephemeral=true scan=false ${JSON.stringify(`[NG Tool Result — ${toolName || 'sidecar'}]\n${output}`)}`,
+                    { showOutput: false, handleExecutionErrors: true },
+                );
+                console.log(`${LOG_PREFIX} Injected result ephemerally as "${ephemeralId}"`);
+            } catch (err) {
+                console.warn(`${LOG_PREFIX} Could not inject ephemeral result:`, err);
+            }
+
+            // Build storage info for the activity feed details
+            const storedIn = [];
+            if (extraStorageInfo) storedIn.push(...extraStorageInfo);
+            if (storeAs) storedIn.push(`Chat variable: ${storeAs}`);
+            if (inject?.id) storedIn.push(`Injection: ${inject.id} (${inject.position || 'chat'}, depth ${inject.depth ?? 1})`);
+            storedIn.push(`Ephemeral injection: ng_ephemeral_${toolName || 'sidecar'}`);
+
+            if (feedItemId !== null) {
+                notifyToolComplete(feedItemId, true, `${output.length} chars generated`, {
+                    fullResult: output,
+                    storedIn,
+                });
+            }
+
+            return output;
+        } catch (error) {
+            console.error(`${LOG_PREFIX} Sidecar generation failed:`, error);
+
+            if (feedItemId !== null) {
+                notifyToolComplete(feedItemId, false, error.message, {
+                    fullResult: `Error: ${error.message}`,
+                    storedIn: [],
+                });
+            }
+
+            return `Error during generation: ${error.message}`;
+        } finally {
+            // Restore the original preset if we switched away from it.
+            // This prevents conflicts with TunnelVision or other extensions.
+            if (savedPreset && preset) {
+                try {
+                    await context.executeSlashCommandsWithOptions(`/preset "${savedPreset}"`, {
+                        showOutput: false,
+                        handleExecutionErrors: true,
+                    });
+                    console.log(`${LOG_PREFIX} Restored preset to "${savedPreset}"`);
+                } catch {
+                    console.warn(`${LOG_PREFIX} Could not restore preset "${savedPreset}"`);
+                }
             }
         }
+    };
+
+    if (preset) {
+        // Serialize preset-switching generations to avoid race conditions
+        const result = presetLock.then(runGeneration);
+        presetLock = result.then(() => {}, () => {});
+        return result;
     }
+
+    return runGeneration();
 }
 
 /**
@@ -233,17 +254,6 @@ export async function runSTScript(script) {
         console.error(`${LOG_PREFIX} STScript failed:`, error);
         return '';
     }
-}
-
-/**
- * Resolve SillyTavern macros in a string.
- * Handles {{char}}, {{user}}, {{lastMessage}}, {{getvar::name}}, etc.
- * @param {string} text - Text containing macros
- * @returns {string} Text with macros resolved
- */
-export function resolveMacros(text) {
-    if (!text) return text;
-    return substituteParams(text);
 }
 
 /**

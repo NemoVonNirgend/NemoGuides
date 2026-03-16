@@ -700,6 +700,87 @@
     border-left-color: #ef4444 !important;
 }
 
+/* ── NG Tab inside TV Panel ── */
+
+.ng-tv-tab-body {
+    overflow-y: auto;
+    max-height: 350px;
+    padding: 8px;
+}
+
+.ng-tv-tab-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ng-tv-section {
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.ng-tv-section-header {
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.ng-tv-section-body {
+    padding: 6px 10px;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.ng-tv-empty {
+    opacity: 0.35;
+    font-style: italic;
+}
+
+.ng-tv-content {
+    font-size: 10px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0;
+    opacity: 0.75;
+    max-height: 150px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.15);
+    padding: 6px;
+    border-radius: 4px;
+}
+
+.ng-tv-tracker {
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    font-size: 11px;
+    opacity: 0.75;
+}
+
+.ng-tv-tracker:last-child {
+    border-bottom: none;
+}
+
+.ng-tv-tracker strong {
+    text-transform: capitalize;
+    opacity: 1;
+}
+
+.ng-tv-analysis {
+    font-size: 11px;
+    opacity: 0.75;
+}
+
+.ng-tv-analysis > div {
+    padding: 2px 0;
+}
+
 /* Clickable items */
 .ng-feed-clickable {
     cursor: pointer;

@@ -15,8 +15,11 @@ const LOG_PREFIX = '[NemosGuides:TVIntegration]';
 /** Whether TV was detected and integration is active. */
 let tvDetected = false;
 
-/** Reference to TV's feed body for injecting items. */
+/** Reference to TV's feed body for injecting items into "All" and "Tools" tabs. */
 let tvFeedBody = null;
+
+/** Reference to our dedicated NG tab body inside TV's panel. */
+let ngTabBody = null;
 
 /**
  * Check if TunnelVision's activity feed is present in the DOM.
@@ -74,8 +77,172 @@ function detectTV() {
         ngPanel.style.display = 'none';
     }
 
+    // Inject "NG" tab into TV's tab bar
+    injectNGTab(panel);
+
     console.log(`${LOG_PREFIX} TunnelVision detected — injecting NG activity into TV feed.`);
     return true;
+}
+
+/**
+ * Inject the NG tab and its content area into TV's panel.
+ * @param {HTMLElement} panel - TV's .tv-float-panel
+ */
+function injectNGTab(panel) {
+    const tabs = panel.querySelector('.tv-float-panel-tabs');
+    if (!tabs) return;
+
+    // Don't inject twice
+    if (tabs.querySelector('[data-tab="ng"]')) return;
+
+    // Create NG tab button
+    const ngTab = document.createElement('button');
+    ngTab.className = 'tv-float-tab';
+    ngTab.dataset.tab = 'ng';
+    ngTab.innerHTML = '<span class="ng-tv-badge" style="margin-right: 2px;">NG</span> Guides';
+    tabs.appendChild(ngTab);
+
+    // Create NG content body (hidden by default)
+    ngTabBody = document.createElement('div');
+    ngTabBody.className = 'tv-float-panel-body ng-tv-tab-body';
+    ngTabBody.style.display = 'none';
+    ngTabBody.innerHTML = `
+        <div class="ng-tv-tab-content">
+            <div class="ng-tv-section">
+                <div class="ng-tv-section-header">
+                    <i class="fa-solid fa-scroll" style="color: #e17055;"></i> Story Rules
+                </div>
+                <div class="ng-tv-section-body" data-ng-section="rules">
+                    <small class="ng-tv-empty">No rules generated yet</small>
+                </div>
+            </div>
+            <div class="ng-tv-section">
+                <div class="ng-tv-section-header">
+                    <i class="fa-solid fa-magnifying-glass-chart" style="color: #a29bfe;"></i> Scene Trackers
+                </div>
+                <div class="ng-tv-section-body" data-ng-section="trackers">
+                    <small class="ng-tv-empty">No scene data yet</small>
+                </div>
+            </div>
+            <div class="ng-tv-section">
+                <div class="ng-tv-section-header">
+                    <i class="fa-solid fa-book-open" style="color: #a29bfe;"></i> DM Notes
+                </div>
+                <div class="ng-tv-section-body" data-ng-section="dm-notes">
+                    <small class="ng-tv-empty">No notes yet</small>
+                </div>
+            </div>
+            <div class="ng-tv-section">
+                <div class="ng-tv-section-header">
+                    <i class="fa-solid fa-spell-check" style="color: #fdcb6e;"></i> Writing Quality
+                </div>
+                <div class="ng-tv-section-body" data-ng-section="writing">
+                    <small class="ng-tv-empty">No analysis yet — runs after 3+ AI messages</small>
+                </div>
+            </div>
+            <div class="ng-tv-section">
+                <div class="ng-tv-section-header">
+                    <i class="fa-solid fa-timeline" style="color: #6c5ce7;"></i> Tool Activity
+                </div>
+                <div class="ng-tv-section-body" data-ng-section="activity">
+                    <small class="ng-tv-empty">No tool activity yet</small>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Insert after the main feed body
+    tvFeedBody.parentNode.insertBefore(ngTabBody, tvFeedBody.nextSibling);
+
+    // Wire up tab switching — intercept clicks on ALL tabs
+    tabs.addEventListener('click', (e) => {
+        const tab = e.target.closest('[data-tab]');
+        if (!tab) return;
+
+        const isNG = tab.dataset.tab === 'ng';
+
+        // Toggle visibility of main TV body vs NG body
+        tvFeedBody.style.display = isNG ? 'none' : '';
+        ngTabBody.style.display = isNG ? '' : 'none';
+
+        // Update active states on all tabs
+        tabs.querySelectorAll('.tv-float-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // If switching to NG, refresh the content
+        if (isNG) {
+            refreshNGTabContent();
+        }
+    });
+}
+
+/**
+ * Refresh the content of the NG tab sections.
+ * Reads current state from lorebook trackers and analyzer.
+ */
+async function refreshNGTabContent() {
+    if (!ngTabBody) return;
+
+    // Import dynamically to avoid circular deps
+    const { getTrackerContent } = await import('./lorebook-manager.js');
+    const { getLastAnalysis } = await import('./writing-analyzer.js');
+
+    // Rules
+    const rulesSection = ngTabBody.querySelector('[data-ng-section="rules"]');
+    if (rulesSection) {
+        const rules = await getTrackerContent('rules');
+        rulesSection.innerHTML = rules
+            ? `<pre class="ng-tv-content">${escapeHtml(rules.substring(0, 1000))}${rules.length > 1000 ? '\n...(truncated)' : ''}</pre>`
+            : '<small class="ng-tv-empty">No rules generated yet</small>';
+    }
+
+    // Trackers
+    const trackersSection = ngTabBody.querySelector('[data-ng-section="trackers"]');
+    if (trackersSection) {
+        const trackerTypes = ['clothing', 'positions', 'situation', 'thinking'];
+        const parts = [];
+        for (const type of trackerTypes) {
+            const content = await getTrackerContent(type);
+            if (content) {
+                parts.push(`<div class="ng-tv-tracker"><strong>${type}:</strong> ${escapeHtml(content.substring(0, 200))}${content.length > 200 ? '...' : ''}</div>`);
+            }
+        }
+        trackersSection.innerHTML = parts.length > 0
+            ? parts.join('')
+            : '<small class="ng-tv-empty">No scene data yet</small>';
+    }
+
+    // DM Notes
+    const dmSection = ngTabBody.querySelector('[data-ng-section="dm-notes"]');
+    if (dmSection) {
+        const notes = await getTrackerContent('dm_notes');
+        dmSection.innerHTML = notes
+            ? `<pre class="ng-tv-content">${escapeHtml(notes.substring(0, 800))}${notes.length > 800 ? '\n...(truncated)' : ''}</pre>`
+            : '<small class="ng-tv-empty">No notes yet</small>';
+    }
+
+    // Writing quality
+    const writingSection = ngTabBody.querySelector('[data-ng-section="writing"]');
+    if (writingSection) {
+        const analysis = getLastAnalysis();
+        if (analysis && analysis.messagesAnalyzed >= 2) {
+            const parts = [];
+            if (analysis.repeatedPhrases?.length) parts.push(`<div>Repeated: ${analysis.repeatedPhrases.map(p => `"${escapeHtml(p.phrase)}" (${p.count}x)`).join(', ')}</div>`);
+            if (analysis.overusedWords?.length) parts.push(`<div>Overused: ${analysis.overusedWords.map(w => `"${escapeHtml(w.word)}" (${w.count}x)`).join(', ')}</div>`);
+            if (analysis.slopResults?.length) parts.push(`<div>Slop: ${analysis.slopResults.map(c => `${c.category} (${c.matches.length})`).join(', ')}</div>`);
+            writingSection.innerHTML = parts.length > 0
+                ? `<div class="ng-tv-analysis">${parts.join('')}</div>`
+                : '<small class="ng-tv-empty">Writing looks clean</small>';
+        } else {
+            writingSection.innerHTML = '<small class="ng-tv-empty">Need 3+ AI messages to analyze</small>';
+        }
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 /**
@@ -135,8 +302,19 @@ export function injectIntoTVFeed(item) {
         </div>
     `;
 
-    // Insert at top of feed body
+    // Insert at top of TV's main feed body (visible on "All" and "Tools" tabs)
     tvFeedBody.prepend(el);
+
+    // Also add a copy to the NG tab's activity section
+    if (ngTabBody) {
+        const activitySection = ngTabBody.querySelector('[data-ng-section="activity"]');
+        if (activitySection) {
+            const empty = activitySection.querySelector('.ng-tv-empty');
+            if (empty) empty.style.display = 'none';
+            const clone = el.cloneNode(true);
+            activitySection.prepend(clone);
+        }
+    }
 
     // Add entry animation
     el.style.opacity = '0';

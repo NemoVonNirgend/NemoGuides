@@ -1,0 +1,12 @@
+{
+    "display_name": "Nemo's Guides",
+    "loading_order": 101,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "NemoVonNirgend",
+    "version": "0.1.0",
+    "description": "AI-driven scene guidance via tool calls. The model autonomously decides when to invoke scene analysis, response planning, and prose refinement tools.",
+    "homePage": "https://github.com/NemoVonNirgend/NemosGuides"
+}

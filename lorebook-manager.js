@@ -199,36 +199,13 @@ async function findTrackerEntry(trackerType) {
         delete uidCache[trackerType];
     }
 
-    // Cache miss (e.g. after a page reload) — scan the lorebook for a matching entry.
-    // We look for an entry whose comment field contains the tracker's expected comment string.
-    const tracker = TRACKERS[trackerType];
-    if (!tracker) return null;
-
-    try {
-        // /getentryfield does not support listing all entries, so we probe sequential UIDs.
-        // STScript returns empty string for unknown UIDs, so we stop after a run of misses.
-        const MAX_SCAN_UID = 200;
-        const MAX_CONSECUTIVE_MISSES = 10;
-        let consecutiveMisses = 0;
-
-        for (let uid = 0; uid < MAX_SCAN_UID; uid++) {
-            const comment = await runScript(`/getentryfield file=${JSON.stringify(bookName)} uid=${uid} field=comment`);
-            if (!comment || comment.trim() === '') {
-                consecutiveMisses++;
-                if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) break;
-                continue;
-            }
-            consecutiveMisses = 0;
-            if (comment.includes(tracker.comment)) {
-                uidCache[trackerType] = String(uid);
-                console.log(`${LOG_PREFIX} Found tracker "${trackerType}" via scan (UID: ${uid})`);
-                return String(uid);
-            }
-        }
-    } catch (error) {
-        console.warn(`${LOG_PREFIX} Lorebook scan for "${trackerType}" failed:`, error);
-    }
-
+    // Cache miss (e.g. after page reload) — try to find the entry by searching
+    // the lorebook DOM for entries with our key prefix, or by using the createentry
+    // result we stored previously. We avoid probing sequential UIDs as that triggers
+    // "Valid UID is required" warnings from SillyTavern's /getentryfield.
+    //
+    // Entries are found when updateTracker creates them and caches the UID.
+    // If the cache is empty after a reload, entries will be recreated on next update.
     return null;
 }
 

@@ -15,6 +15,7 @@ import { runSidecarGeneration, gatherContext } from '../sidecar.js';
 import { DEFAULT_PROMPTS } from '../prompts.js';
 import { getToolSettings } from '../tool-registry.js';
 import { updateTracker, getTrackerContent } from '../lorebook-manager.js';
+import { getTVWorldContext } from '../tv-bridge.js';
 
 export const TOOL_NAME = 'NG_rule_setup';
 
@@ -104,6 +105,14 @@ async function execute({ focus, refresh } = {}) {
     if (recentMessages) {
         contextBlock += `\n\n## Recent Messages\n${recentMessages}`;
     }
+
+    // Pull world context from TunnelVision's lorebooks if available
+    try {
+        const tvContext = await getTVWorldContext();
+        if (tvContext) {
+            contextBlock += `\n\n${tvContext}`;
+        }
+    } catch { /* TV not available */ }
 
     const template = settings.prompt || DEFAULT_PROMPTS.rule_setup;
     const prompt = template

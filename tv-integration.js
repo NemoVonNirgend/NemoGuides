@@ -172,6 +172,7 @@ function injectNGTab(panel) {
         // If switching to NG, refresh the content
         if (isNG) {
             refreshNGTabContent();
+            refreshIntegrationStatus();
         }
     });
 }
@@ -236,6 +237,54 @@ async function refreshNGTabContent() {
         } else {
             writingSection.innerHTML = '<small class="ng-tv-empty">Need 3+ AI messages to analyze</small>';
         }
+    }
+}
+
+/**
+ * Refresh the integration status section in the NG tab.
+ */
+async function refreshIntegrationStatus() {
+    if (!ngTabBody) return;
+
+    try {
+        const { getIntegrationStatus } = await import('./tv-bridge.js');
+        const status = await getIntegrationStatus();
+
+        // Find or create integration section
+        let section = ngTabBody.querySelector('[data-ng-section="integration"]');
+        if (!section) {
+            const sectionEl = document.createElement('div');
+            sectionEl.className = 'ng-tv-section';
+            sectionEl.innerHTML = `
+                <div class="ng-tv-section-header">
+                    <i class="fa-solid fa-link" style="color: #00cec9;"></i> TV Integration
+                </div>
+                <div class="ng-tv-section-body" data-ng-section="integration"></div>
+            `;
+            ngTabBody.querySelector('.ng-tv-tab-content')?.appendChild(sectionEl);
+            section = ngTabBody.querySelector('[data-ng-section="integration"]');
+        }
+
+        if (!section) return;
+
+        if (!status.available) {
+            section.innerHTML = '<small class="ng-tv-empty">TunnelVision bridge not connected</small>';
+            return;
+        }
+
+        const parts = [];
+        parts.push(`<div>Active lorebooks: ${status.activeBooks?.length || 0}</div>`);
+        parts.push(`<div>TV trackers: ${status.tvTrackers?.length || 0}</div>`);
+
+        if (status.trackerOverlap?.overlapping?.length > 0) {
+            parts.push(`<div style="color: #fdcb6e;">Overlap detected: ${status.trackerOverlap.overlapping.join(', ')}</div>`);
+        } else {
+            parts.push(`<div style="color: #55efc4;">No tracker overlap — NG and TV complement each other</div>`);
+        }
+
+        section.innerHTML = `<div class="ng-tv-analysis">${parts.join('')}</div>`;
+    } catch (error) {
+        console.warn(`${LOG_PREFIX} Integration status refresh failed:`, error);
     }
 }
 

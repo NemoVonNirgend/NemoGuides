@@ -6,6 +6,7 @@
 
 import { eventSource, event_types } from '../../../../script.js';
 import { ALL_TOOL_NAMES, TOOL_DISPLAY_NAMES } from './tool-registry.js';
+import { initTVIntegration, isTVIntegrationActive, injectIntoTVFeed, updateTVFeedItem } from './tv-integration.js';
 
 const LOG_PREFIX = '[NemosGuides:Feed]';
 const MAX_FEED_ITEMS = 30;
@@ -62,6 +63,9 @@ export function initActivityFeed() {
 
     createTriggerButton();
     createPanel();
+
+    // Check for TunnelVision and integrate if present
+    initTVIntegration();
 
     // Listen for tool call completions
     if (event_types.TOOL_CALLS_PERFORMED) {
@@ -319,6 +323,13 @@ export function notifyToolStart(toolName, params = {}) {
     };
 
     activeCount++;
+
+    // If TunnelVision is active, inject into TV's feed instead
+    if (isTVIntegrationActive()) {
+        const tvEl = injectIntoTVFeed(item);
+        item.tvElement = tvEl;
+    }
+
     addFeedItemRunning(item);
     return item.id;
 }
@@ -363,6 +374,14 @@ export function notifyToolComplete(feedItemId, success, resultSummary, details) 
 
         // Trigger completion animation
         item.element.classList.add('ng-feed-complete');
+    }
+
+    // Update TV feed item if integrated
+    if (item.tvElement) {
+        updateTVFeedItem(item.tvElement, {
+            status: item.status,
+            summary: item.summary,
+        });
     }
 
     updateBadge();

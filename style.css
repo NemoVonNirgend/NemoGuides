@@ -672,6 +672,34 @@
     font-size: 11px;
 }
 
+/* ── TunnelVision Integration ── */
+
+.ng-tv-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #a29bfe, #6c5ce7);
+    color: #fff;
+    font-size: 8px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    line-height: 1.2;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
+.ng-tv-item {
+    border-left: 3px solid #a29bfe !important;
+}
+
+.ng-tv-item[data-status="running"] {
+    border-left-color: #fdcb6e !important;
+}
+
+.ng-tv-item[data-status="error"] {
+    border-left-color: #ef4444 !important;
+}
+
 /* Clickable items */
 .ng-feed-clickable {
     cursor: pointer;

@@ -16,7 +16,7 @@
  */
 
 import { getContext, extension_settings } from '../../../extensions.js';
-import { createNewWorldInfo } from '../../../world-info.js';
+import { createNewWorldInfo, world_names } from '../../../world-info.js';
 import { EXTENSION_NAME } from './tool-registry.js';
 
 const LOG_PREFIX = '[NemosGuides:Lorebook]';
@@ -149,14 +149,10 @@ export async function ensureBookExists() {
 
     const bookName = getBookName();
 
-    // Test if book exists by trying to create an entry
-    const testUid = await runScript(`/createentry file=${JSON.stringify(bookName)} key="[NG] _init_test"`);
-
-    if (testUid && testUid !== '') {
-        await runScript(`/setentryfield file=${JSON.stringify(bookName)} uid=${testUid} field=disable true`);
-        await runScript(`/setentryfield file=${JSON.stringify(bookName)} uid=${testUid} field=content (NG initialization marker — can be deleted)`);
+    // Check SillyTavern's live registry before attempting creation.
+    if (world_names.includes(bookName)) {
         bookInitialized = true;
-        console.log(`${LOG_PREFIX} Lorebook "${bookName}" verified and ready.`);
+        console.log(`${LOG_PREFIX} Lorebook "${bookName}" is ready.`);
         return true;
     }
 

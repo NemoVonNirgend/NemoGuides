@@ -39,7 +39,7 @@ import { buildWritingWarnings } from './writing-analyzer.js';
 import { runPromptAdvisor, applyAllRecommendations, resetAdvisorState } from './prompt-advisor.js';
 
 const LOG_PREFIX = '[NemosGuides]';
-const EXTENSION_FOLDER = 'third-party/NemosGuides';
+const EXTENSION_FOLDER = 'third-party/NemoGuides';
 const PROMPT_KEY = 'ng_system_instruction';
 
 /** Track the last chat ID to detect new chats. */

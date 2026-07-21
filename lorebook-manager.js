@@ -16,6 +16,7 @@
  */
 
 import { getContext, extension_settings } from '../../../extensions.js';
+import { createNewWorldInfo } from '../../../world-info.js';
 import { EXTENSION_NAME } from './tool-registry.js';
 
 const LOG_PREFIX = '[NemosGuides:Lorebook]';
@@ -162,13 +163,8 @@ export async function ensureBookExists() {
     // Try to create the book via API
     try {
         console.log(`${LOG_PREFIX} Lorebook "${bookName}" not found. Creating...`);
-        const response = await fetch('/api/worldinfo/create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: bookName }),
-        });
-
-        if (response.ok) {
+        const created = await createNewWorldInfo(bookName);
+        if (created) {
             bookInitialized = true;
             console.log(`${LOG_PREFIX} Created lorebook "${bookName}". Add it to your global World Info selection.`);
             if (typeof toastr !== 'undefined') {
